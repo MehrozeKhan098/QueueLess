@@ -1,26 +1,7 @@
-# QueueLess - Service Time Data
-# Member 3: AI Support
-
-
 SERVICE_TIMES = {
-
-    "Birth Certificate": [
-        5, 6, 5, 7, 6
-    ],
-
-    "Income Certificate": [
-        6, 7, 8, 6, 7
-    ],
-
-    "Caste Certificate": [
-        5, 6, 7, 5, 6
-    ],
-
-    "Residence Certificate": [
-        4, 5, 5, 6, 5
-    ],
-
-    "Document Registration": [
-        8, 9, 7, 8, 9
-    ]
+    "General Checkup": [5, 6, 5, 7, 6],
+    "Dental": [10, 12, 11, 13, 10],
+    "Cardiology": [15, 18, 16, 17, 15],
+    "Pediatrics": [7, 8, 6, 9, 7],
+    "Dermatology": [8, 9, 7, 8, 10]
 }
