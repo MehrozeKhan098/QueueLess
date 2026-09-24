@@ -1,7 +1,6 @@
 # QueueLess - Backend & Queue Logic
 # Member 2 - Backend / Queue Logic
 
-
 from data import (
     get_queue,
     get_patient_queue,
@@ -19,74 +18,34 @@ from data import (
 class QueueManager:
 
     def __init__(self):
-
         self.queue = []
-
         self.current_serving = None
 
     # ========================================================
-    # LIVE QUEUE
+    # SNOWFLAKE DATA
     # ========================================================
 
     def get_live_queue(self):
-
         return get_queue()
 
-    # ========================================================
-    # GET PATIENT BY TOKEN
-    # ========================================================
+    def get_patient_from_snowflake(self, token):
+        return get_patient_queue(token)
 
-    def get_patient_from_snowflake(
-        self,
-        token
-    ):
-
-        token = token.strip().upper()
-
-        return get_patient_queue(
-            token
-        )
-
-    # ========================================================
-    # GET SERVICE QUEUE
-    # ========================================================
-
-    def get_live_service_queue(
-        self,
-        service_id
-    ):
-
-        return get_snowflake_service_queue(
-            service_id
-        )
-
-    # ========================================================
-    # GET SERVICES
-    # ========================================================
+    def get_live_service_queue(self, service_id):
+        return get_snowflake_service_queue(service_id)
 
     def get_available_services(self):
-
         return get_services()
 
     # ========================================================
-    # GENERATE TOKEN
+    # TOKEN GENERATION
     # ========================================================
 
-    def generate_token(
-        self,
-        service_code="A"
-    ):
-
-        service_code = str(
-            service_code
-        ).strip().upper()
-
-        return generate_unique_token(
-            service_code
-        )
+    def generate_token(self, service_code="A"):
+        return generate_unique_token(service_code)
 
     # ========================================================
-    # ADD CITIZEN
+    # ADD PATIENT
     # ========================================================
 
     def add_citizen(
@@ -97,7 +56,7 @@ class QueueManager:
         phone,
         service
     ):
-
+        # Find selected service
         services = get_services()
 
         service_row = services[
@@ -105,7 +64,6 @@ class QueueManager:
         ]
 
         if service_row.empty:
-
             raise ValueError(
                 "Selected service was not found."
             )
@@ -116,16 +74,13 @@ class QueueManager:
 
         service_code = str(
             service_row.iloc[0]["SERVICE_CODE"]
-        ).strip().upper()
+        )
 
         average_time = float(
             service_row.iloc[0]["AVG_SERVICE_TIME"]
         )
 
-        # ----------------------------------------------------
-        # ADD PATIENT
-        # ----------------------------------------------------
-
+        # Save patient in Snowflake
         add_patient_to_snowflake(
             name,
             age,
@@ -133,93 +88,57 @@ class QueueManager:
             phone
         )
 
+        # Get newly created patient ID
         patient_id = get_latest_patient_id()
 
         if patient_id is None:
-
             raise ValueError(
                 "Could not find newly created patient."
             )
 
-        # ----------------------------------------------------
-        # GENERATE TOKEN
-        # ----------------------------------------------------
-
+        # Generate unique token
         token = self.generate_token(
             service_code
         )
 
-        # ----------------------------------------------------
-        # GET LIVE SERVICE QUEUE
-        # ----------------------------------------------------
-
-        current_queue = (
-            get_snowflake_service_queue(
-                service_id
-            )
+        # Get current active queue
+        current_queue = get_snowflake_service_queue(
+            service_id
         )
 
-        if (
-            current_queue is None
-            or current_queue.empty
-        ):
-
+        if current_queue.empty:
             queue_position = 1
-
             people_ahead = 0
-
         else:
-
             active_queue = current_queue[
                 current_queue["STATUS"]
                 .fillna("")
                 .str.upper()
-                .isin(
-                    [
-                        "WAITING",
-                        "SERVING"
-                    ]
-                )
+                .isin(["WAITING", "SERVING"])
             ]
 
-            queue_position = (
-                len(active_queue) + 1
-            )
-
-            waiting_queue = active_queue[
-                active_queue["STATUS"]
-                .fillna("")
-                .str.upper()
-                == "WAITING"
-            ]
+            queue_position = len(active_queue) + 1
 
             people_ahead = len(
-                waiting_queue
+                active_queue[
+                    active_queue["STATUS"]
+                    .fillna("")
+                    .str.upper()
+                    == "WAITING"
+                ]
             )
 
-        # ----------------------------------------------------
-        # WAIT TIME
-        # ----------------------------------------------------
-
+        # Calculate estimated wait time
         estimated_wait_time = (
-            people_ahead
-            * average_time
+            people_ahead * average_time
         )
 
-        # ----------------------------------------------------
-        # DOCTOR
-        # ----------------------------------------------------
-
+        # Select doctor
         doctor_map = {
-
             "A": "Dr. Ahmed",
-
             "B": "Dr. Khan",
-
             "C": "Dr. Ali",
-
             "D": "Dr. Fatima",
-
             "E": "Dr. Sara"
         }
 
@@ -228,10 +147,7 @@ class QueueManager:
             "Doctor"
         )
 
-        # ----------------------------------------------------
-        # ADD QUEUE ENTRY
-        # ----------------------------------------------------
-
+        # Save queue entry in Snowflake
         add_queue_entry(
             patient_id,
             service_id,
@@ -242,35 +158,21 @@ class QueueManager:
             doctor_name
         )
 
-        # ----------------------------------------------------
-        # LOCAL CACHE
-        # ----------------------------------------------------
-
+        # Create patient information
         citizen = {
-
             "patient_id": patient_id,
-
             "token": token,
-
             "name": name,
-
             "service": service,
-
             "status": "Waiting",
-
             "queue_position": queue_position,
-
             "people_ahead": people_ahead,
-
-            "estimated_wait_time":
-                estimated_wait_time,
-
+            "estimated_wait_time": estimated_wait_time,
             "doctor_name": doctor_name
         }
 
-        self.queue.append(
-            citizen
-        )
+        # Local cache only
+        self.queue.append(citizen)
 
         return citizen
 
@@ -279,77 +181,49 @@ class QueueManager:
     # ========================================================
 
     def get_queue(self):
-
         return self.queue
 
     # ========================================================
-    # FIND CITIZEN
+    # FIND PATIENT
     # ========================================================
 
-    def find_citizen(
-        self,
-        token
-    ):
-
+    def find_citizen(self, token):
         token = token.strip().upper()
 
         for citizen in self.queue:
-
-            if (
-                citizen["token"].upper()
-                == token
-            ):
-
+            if citizen["token"].upper() == token:
                 return citizen
 
         return None
 
     # ========================================================
-    # GET STATUS
+    # TOKEN STATUS
     # ========================================================
 
-    def get_status(
-        self,
-        token
-    ):
-
-        token = token.strip().upper()
-
+    def get_status(self, token):
         patient = get_patient_queue(
-            token
+            token.strip().upper()
         )
 
-        if (
-            patient is None
-            or patient.empty
-        ):
-
+        if patient is None or patient.empty:
             return "TOKEN NOT FOUND"
 
-        return str(
+        status = str(
             patient.iloc[0]["STATUS"]
         ).upper()
+
+        return status
 
     # ========================================================
     # PEOPLE AHEAD
     # ========================================================
 
-    def people_ahead(
-        self,
-        token
-    ):
-
+    def people_ahead(self, token):
         token = token.strip().upper()
 
-        patient = get_patient_queue(
-            token
-        )
+        patient = get_patient_queue(token)
 
-        if (
-            patient is None
-            or patient.empty
-        ):
-
+        if patient is None or patient.empty:
             return -1
 
         patient_row = patient.iloc[0]
@@ -358,45 +232,23 @@ class QueueManager:
             patient_row["STATUS"]
         ).upper()
 
-        # Serving, served and cancelled
-        # have nobody ahead.
-
-        if status in [
-            "SERVING",
-            "SERVED",
-            "CANCELLED"
-        ]:
-
+        if status in ["SERVING", "SERVED", "CANCELLED"]:
             return 0
 
         service_id = int(
             patient_row["SERVICE_ID"]
         )
 
-        queue_id = int(
-            patient_row["QUEUE_ID"]
+        queue_position = int(
+            patient_row["QUEUE_POSITION"]
         )
 
-        # ----------------------------------------------------
-        # GET LIVE SERVICE QUEUE
-        # ----------------------------------------------------
-
-        service_queue = (
-            get_snowflake_service_queue(
-                service_id
-            )
+        service_queue = get_snowflake_service_queue(
+            service_id
         )
 
-        if (
-            service_queue is None
-            or service_queue.empty
-        ):
-
+        if service_queue.empty:
             return 0
-
-        # ----------------------------------------------------
-        # ONLY WAITING PATIENTS
-        # ----------------------------------------------------
 
         waiting_patients = service_queue[
             service_queue["STATUS"]
@@ -405,18 +257,12 @@ class QueueManager:
             == "WAITING"
         ]
 
-        # ----------------------------------------------------
-        # ONLY PATIENTS BEFORE THIS PATIENT
-        # ----------------------------------------------------
-
         waiting_patients = waiting_patients[
-            waiting_patients["QUEUE_ID"]
-            < queue_id
+            waiting_patients["QUEUE_POSITION"]
+            < queue_position
         ]
 
-        return len(
-            waiting_patients
-        )
+        return len(waiting_patients)
 
     # ========================================================
     # ESTIMATED WAIT TIME
@@ -427,85 +273,51 @@ class QueueManager:
         token,
         average_service_time
     ):
-
-        people = self.people_ahead(
-            token
-        )
+        people = self.people_ahead(token)
 
         if people == -1:
-
             return -1
 
-        return (
-            people
-            * average_service_time
-        )
+        return people * average_service_time
 
     # ========================================================
-    # GET POSITION
+    # QUEUE POSITION
     # ========================================================
 
-    def get_position(
-        self,
-        token
-    ):
-
+    def get_position(self, token):
         token = token.strip().upper()
 
-        patient = get_patient_queue(
-            token
-        )
+        patient = get_patient_queue(token)
 
-        if (
-            patient is None
-            or patient.empty
-        ):
-
+        if patient is None or patient.empty:
             return -1
 
         status = str(
             patient.iloc[0]["STATUS"]
         ).upper()
 
-        if status in [
-            "SERVING",
-            "SERVED",
-            "CANCELLED"
-        ]:
-
+        if status in ["SERVING", "SERVED", "CANCELLED"]:
             return 0
 
-        people = self.people_ahead(
-            token
-        )
+        people = self.people_ahead(token)
 
         if people == -1:
-
             return -1
 
         return people + 1
 
     # ========================================================
-    # SERVE NEXT
+    # SERVE NEXT PATIENT
     # ========================================================
 
     def serve_next(self):
-
         live_queue = get_queue()
 
-        if (
-            live_queue is None
-            or live_queue.empty
-        ):
-
+        if live_queue.empty:
             self.current_serving = None
-
             return None
 
-        # ----------------------------------------------------
-        # CHECK CURRENT SERVING
-        # ----------------------------------------------------
-
+        # Check if someone is already being served
         serving = live_queue[
             live_queue["STATUS"]
             .fillna("")
@@ -514,32 +326,17 @@ class QueueManager:
         ]
 
         if not serving.empty:
-
-            current_patient = (
-                serving.iloc[0]
-            )
+            current_patient = serving.iloc[0]
 
             self.current_serving = {
-
-                "token":
-                    current_patient[
-                        "TOKEN_NUMBER"
-                    ],
-
-                "name":
-                    current_patient[
-                        "PATIENT_NAME"
-                    ],
-
+                "token": current_patient["TOKEN_NUMBER"],
+                "name": current_patient["PATIENT_NAME"],
                 "status": "SERVING"
             }
 
             return None
 
-        # ----------------------------------------------------
-        # GET WAITING
-        # ----------------------------------------------------
-
+        # Find waiting patients
         waiting = live_queue[
             live_queue["STATUS"]
             .fillna("")
@@ -548,15 +345,10 @@ class QueueManager:
         ]
 
         if waiting.empty:
-
             self.current_serving = None
-
             return None
 
-        # ----------------------------------------------------
-        # SORT BY POSITION
-        # ----------------------------------------------------
-
+        # Sort by queue position
         waiting = waiting.sort_values(
             by="QUEUE_POSITION"
         )
@@ -564,52 +356,32 @@ class QueueManager:
         next_patient = waiting.iloc[0]
 
         token = str(
-            next_patient[
-                "TOKEN_NUMBER"
-            ]
+            next_patient["TOKEN_NUMBER"]
         ).strip().upper()
 
-        # ----------------------------------------------------
-        # UPDATE DATABASE
-        # ----------------------------------------------------
-
-        success = serve_queue_token(
-            token
-        )
+        # Update Snowflake
+        success = serve_queue_token(token)
 
         if not success:
-
             return None
 
         self.current_serving = {
-
             "token": token,
-
-            "name":
-                next_patient[
-                    "PATIENT_NAME"
-                ],
-
+            "name": next_patient["PATIENT_NAME"],
             "status": "SERVING"
         }
 
         return self.current_serving
 
     # ========================================================
-    # CURRENT SERVING
+    # CURRENTLY SERVING
     # ========================================================
 
     def get_current_serving(self):
-
         live_queue = get_queue()
 
-        if (
-            live_queue is None
-            or live_queue.empty
-        ):
-
+        if live_queue.empty:
             self.current_serving = None
-
             return None
 
         serving = live_queue[
@@ -620,81 +392,51 @@ class QueueManager:
         ]
 
         if serving.empty:
-
             self.current_serving = None
-
             return None
 
-        current_patient = (
-            serving.iloc[0]
-        )
+        current_patient = serving.iloc[0]
 
         self.current_serving = {
-
-            "token":
-                current_patient[
-                    "TOKEN_NUMBER"
-                ],
-
-            "name":
-                current_patient[
-                    "PATIENT_NAME"
-                ],
-
+            "token": current_patient["TOKEN_NUMBER"],
+            "name": current_patient["PATIENT_NAME"],
             "status": "SERVING"
         }
 
         return self.current_serving
 
     # ========================================================
-    # CANCEL TOKEN
+    # CANCEL QUEUE TOKEN
     # ========================================================
 
-    def cancel_token(
-        self,
-        token
-    ):
-
+    def cancel_token(self, token):
         token = token.strip().upper()
 
-        patient = get_patient_queue(
-            token
-        )
+        patient = get_patient_queue(token)
 
-        if (
-            patient is None
-            or patient.empty
-        ):
-
+        if patient is None or patient.empty:
             return False
 
         status = str(
             patient.iloc[0]["STATUS"]
         ).upper()
 
-        if status in [
-            "SERVED",
-            "SERVING"
-        ]:
-
+        # Do not allow a served or currently serving
+        # patient to be cancelled
+        if status in ["SERVED", "SERVING"]:
             return False
 
-        success = cancel_queue_token(
-            token
-        )
+        # Delete token from active Snowflake queue
+        success = cancel_queue_token(token)
 
         if not success:
-
             return False
 
+        # Remove token from local cache
         self.queue = [
-
             citizen
-
             for citizen in self.queue
-
-            if citizen["token"].upper()
-            != token
+            if citizen["token"].upper() != token
         ]
 
         return True
@@ -703,25 +445,14 @@ class QueueManager:
     # LOCAL SERVICE QUEUE
     # ========================================================
 
-    def get_service_queue(
-        self,
-        service
-    ):
-
+    def get_service_queue(self, service):
         service_queue = []
 
         for citizen in self.queue:
-
             if (
-                citizen["service"]
-                == service
-
-                and citizen["status"].upper()
-                == "WAITING"
+                citizen["service"] == service
+                and citizen["status"].upper() == "WAITING"
             ):
-
-                service_queue.append(
-                    citizen
-                )
+                service_queue.append(citizen)
 
         return service_queue

@@ -1,8 +1,11 @@
 import streamlit as st
-
 from queue_logic import QueueManager
 from ai import get_prediction, get_queue_status
 
+
+# ========================================================
+# PAGE CONFIG
+# ========================================================
 
 st.set_page_config(
     page_title="QueueLess",
@@ -10,6 +13,10 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ========================================================
+# CUSTOM CSS
+# ========================================================
 
 st.markdown(
     """
@@ -26,6 +33,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
+# ========================================================
+# QUEUE MANAGER
+# ========================================================
 
 queue_manager = QueueManager()
 
@@ -46,7 +57,6 @@ st.caption(
 # ========================================================
 
 st.sidebar.title("QueueLess")
-
 
 page = st.sidebar.radio(
     "Menu",
@@ -194,7 +204,6 @@ if page == "🎫 Get Digital Token":
                     "token"
                 ]
 
-
                 people_ahead = patient[
                     "people_ahead"
                 ]
@@ -218,7 +227,6 @@ if page == "🎫 Get Digital Token":
 
 
                 st.divider()
-
 
                 st.subheader(
                     "🎫 Your Token"
@@ -369,27 +377,45 @@ elif page == "🔎 Check Token":
                         "PATIENT_NAME"
                     ]
 
-
                     service_name = row[
                         "SERVICE_NAME"
                     ]
 
-
                     position = int(
                         row["QUEUE_POSITION"]
                     )
-
 
                     current_status = row[
                         "STATUS"
                     ]
 
 
-                    people_ahead = max(
-                        position - 1,
-                        0
-                    )
+                    # ------------------------------------
+                    # PEOPLE AHEAD
+                    # ------------------------------------
 
+                    if current_status.upper() == "SERVING":
+
+                        people_ahead = 0
+
+                    elif current_status.upper() in [
+                        "SERVED",
+                        "CANCELLED"
+                    ]:
+
+                        people_ahead = 0
+
+                    else:
+
+                        people_ahead = max(
+                            position - 1,
+                            0
+                        )
+
+
+                    # ------------------------------------
+                    # AI PREDICTION
+                    # ------------------------------------
 
                     prediction = (
                         get_prediction(
@@ -413,6 +439,10 @@ elif page == "🔎 Check Token":
                         )
                     )
 
+
+                    # ------------------------------------
+                    # DISPLAY
+                    # ------------------------------------
 
                     st.success(
                         f"Token {token} found!"
@@ -550,6 +580,7 @@ elif page == "🚪 Leave Queue":
 
                     st.rerun()
 
+
                 else:
 
                     st.warning(
@@ -585,7 +616,7 @@ elif page == "👨‍⚕️ Staff Dashboard":
 
 
     # ====================================================
-    # SERVE NEXT BUTTON
+    # SERVE NEXT
     # ====================================================
 
     if st.button(
@@ -596,13 +627,17 @@ elif page == "👨‍⚕️ Staff Dashboard":
 
         try:
 
-            patient = (
+            # --------------------------------------------
+            # FIRST CHECK CURRENT QUEUE
+            # --------------------------------------------
+
+            live_queue_before = (
                 queue_manager
-                .serve_next()
+                .get_live_queue()
             )
 
 
-            if patient is None:
+            if live_queue_before.empty:
 
                 st.warning(
                     "No waiting patients in the queue."
@@ -610,12 +645,59 @@ elif page == "👨‍⚕️ Staff Dashboard":
 
             else:
 
-                st.success(
-                    f"Now serving {patient['token']} — "
-                    f"{patient['name']}"
-                )
+                # ----------------------------------------
+                # CHECK IF SOMEONE IS ALREADY SERVING
+                # ----------------------------------------
 
-                st.rerun()
+                serving = live_queue_before[
+                    live_queue_before["STATUS"]
+                    .fillna("")
+                    .str.upper()
+                    == "SERVING"
+                ]
+
+
+                if not serving.empty:
+
+                    current_patient = (
+                        serving.iloc[0]
+                    )
+
+
+                    st.warning(
+                        f"⚠️ {current_patient['TOKEN_NUMBER']} "
+                        f"— {current_patient['PATIENT_NAME']} "
+                        f"is currently being served."
+                    )
+
+
+                else:
+
+                    # ------------------------------------
+                    # SERVE FIRST WAITING PATIENT
+                    # ------------------------------------
+
+                    patient = (
+                        queue_manager
+                        .serve_next()
+                    )
+
+
+                    if patient is None:
+
+                        st.warning(
+                            "No waiting patients in the queue."
+                        )
+
+                    else:
+
+                        st.success(
+                            f"▶️ Now serving "
+                            f"{patient['token']} — "
+                            f"{patient['name']}"
+                        )
+
+                        st.rerun()
 
 
         except Exception as error:
@@ -653,6 +735,10 @@ elif page == "👨‍⚕️ Staff Dashboard":
 
         else:
 
+            # --------------------------------------------
+            # QUEUE COUNTS
+            # --------------------------------------------
+
             total_patients = len(
                 live_queue
             )
@@ -661,6 +747,7 @@ elif page == "👨‍⚕️ Staff Dashboard":
             waiting_patients = len(
                 live_queue[
                     live_queue["STATUS"]
+                    .fillna("")
                     .str.upper()
                     == "WAITING"
                 ]
@@ -670,6 +757,7 @@ elif page == "👨‍⚕️ Staff Dashboard":
             serving_patients = len(
                 live_queue[
                     live_queue["STATUS"]
+                    .fillna("")
                     .str.upper()
                     == "SERVING"
                 ]
@@ -679,6 +767,7 @@ elif page == "👨‍⚕️ Staff Dashboard":
             served_patients = len(
                 live_queue[
                     live_queue["STATUS"]
+                    .fillna("")
                     .str.upper()
                     == "SERVED"
                 ]
@@ -688,11 +777,16 @@ elif page == "👨‍⚕️ Staff Dashboard":
             cancelled_patients = len(
                 live_queue[
                     live_queue["STATUS"]
+                    .fillna("")
                     .str.upper()
                     == "CANCELLED"
                 ]
             )
 
+
+            # --------------------------------------------
+            # METRICS
+            # --------------------------------------------
 
             c1, c2, c3, c4, c5 = (
                 st.columns(5)
@@ -742,9 +836,77 @@ elif page == "👨‍⚕️ Staff Dashboard":
             st.divider()
 
 
-            # ============================================
+            # ====================================================
+            # CURRENTLY SERVING
+            # ====================================================
+
+            st.subheader(
+                "👨‍⚕️ Currently Serving"
+            )
+
+
+            serving_data = live_queue[
+                live_queue["STATUS"]
+                .fillna("")
+                .str.upper()
+                == "SERVING"
+            ]
+
+
+            if serving_data.empty:
+
+                st.info(
+                    "No patient is currently being served."
+                )
+
+            else:
+
+                serving_patient = (
+                    serving_data.iloc[0]
+                )
+
+
+                sc1, sc2, sc3 = (
+                    st.columns(3)
+                )
+
+
+                with sc1:
+
+                    st.metric(
+                        "Token",
+                        serving_patient[
+                            "TOKEN_NUMBER"
+                        ]
+                    )
+
+
+                with sc2:
+
+                    st.metric(
+                        "Patient",
+                        serving_patient[
+                            "PATIENT_NAME"
+                        ]
+                    )
+
+
+                with sc3:
+
+                    st.metric(
+                        "Service",
+                        serving_patient[
+                            "SERVICE_NAME"
+                        ]
+                    )
+
+
+            st.divider()
+
+
+            # ====================================================
             # LIVE QUEUE TABLE
-            # ============================================
+            # ====================================================
 
             st.subheader(
                 "📋 Live Queue"
@@ -796,9 +958,9 @@ elif page == "👨‍⚕️ Staff Dashboard":
             st.divider()
 
 
-            # ============================================
-            # FILTER
-            # ============================================
+            # ====================================================
+            # FILTER BY SERVICE
+            # ====================================================
 
             st.subheader(
                 "🔍 Filter by Service"
@@ -856,9 +1018,9 @@ elif page == "👨‍⚕️ Staff Dashboard":
             st.divider()
 
 
-            # ============================================
+            # ====================================================
             # WAITING CHART
-            # ============================================
+            # ====================================================
 
             st.subheader(
                 "📊 Waiting Patients by Service"
@@ -868,6 +1030,7 @@ elif page == "👨‍⚕️ Staff Dashboard":
             waiting_data = (
                 live_queue[
                     live_queue["STATUS"]
+                    .fillna("")
                     .str.upper()
                     == "WAITING"
                 ]
@@ -914,7 +1077,6 @@ elif page == "👨‍⚕️ Staff Dashboard":
 # ========================================================
 
 st.divider()
-
 
 st.caption(
     "QueueLess • Smart Hospital Queue Management System"
